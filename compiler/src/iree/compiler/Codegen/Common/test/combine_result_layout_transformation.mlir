@@ -250,7 +250,6 @@ func.func @fold_unpack_op(%source : tensor<?x?x128x128xf32>, %result : memref<?x
   iree_codegen.store_to_buffer %unpack, %result : tensor<?x?xf32> into memref<?x?xf32>
   return
 }
-//       DISPATCH-SCOPE: #[[$MAP:.+]] = affine_map<()[s0] -> (s0 * 128)>
 // DISPATCH-SCOPE-LABEL: @fold_unpack_op
 //  DISPATCH-SCOPE-SAME:   %[[SOURCE:[a-zA-Z0-9_]+]]
 //  DISPATCH-SCOPE-SAME:   %[[RESULT:[a-zA-Z0-9_]+]]
@@ -260,21 +259,20 @@ func.func @fold_unpack_op(%source : tensor<?x?x128x128xf32>, %result : memref<?x
 //   DISPATCH-SCOPE-DAG:   %[[RES_D1:.+]] = memref.dim %[[RESULT]], %[[C1]] : memref<?x?xf32>
 //   DISPATCH-SCOPE-DAG:   %[[SRC_D0:.+]] = tensor.dim %[[SOURCE]], %[[C0]] : tensor<?x?x128x128xf32>
 //   DISPATCH-SCOPE-DAG:   %[[SRC_D1:.+]] = tensor.dim %[[SOURCE]], %[[C1]] : tensor<?x?x128x128xf32>
-//   DISPATCH-SCOPE-DAG:   %[[COLLAPSE_SIZE0:.+]] = affine.apply #[[$MAP]]()[%[[SRC_D0]]]
-//   DISPATCH-SCOPE-DAG:   %[[COLLAPSE_SIZE1:.+]] = affine.apply #[[$MAP]]()[%[[SRC_D1]]]
 //   DISPATCH-SCOPE-DAG:   %[[MAP_SCATTER_DEST:.+]] = tensor.empty(%[[RES_D0]], %[[RES_D1]]) : tensor<?x?xf32>
 //       DISPATCH-SCOPE:   %[[MAP_SCATTER:.+]] = iree_linalg_ext.map_store
 //  DISPATCH-SCOPE-SAME:     %[[SOURCE]] into %[[MAP_SCATTER_DEST]] {
 //  DISPATCH-SCOPE-NEXT:   ^bb0(%[[IDX0:.+]]: index, %[[IDX1:.+]]: index, %[[IDX2:.+]]: index, %[[IDX3:.+]]: index):
-//       DISPATCH-SCOPE:     %[[LINEARIZE:.+]] = affine.linearize_index
-//  DISPATCH-SCOPE-SAME:       [%[[IDX0]], %[[IDX2]], %[[IDX1]], %[[IDX3]]]
-//  DISPATCH-SCOPE-SAME:       by (%[[SRC_D0]], 128, %[[SRC_D1]], 128)
-//       DISPATCH-SCOPE:     %[[DELINEARIZE:.+]]:2 = affine.delinearize_index %[[LINEARIZE]]
-//  DISPATCH-SCOPE-SAME:       into (%[[COLLAPSE_SIZE0]], %[[COLLAPSE_SIZE1]])
-//       DISPATCH-SCOPE:     %[[BOUND0:.+]] = arith.cmpi ult, %[[DELINEARIZE]]#0, %[[RES_D0]]
-//       DISPATCH-SCOPE:     %[[BOUND1:.+]] = arith.cmpi ult, %[[DELINEARIZE]]#1, %[[RES_D1]]
+// Each collapsed dimension folds independently, so the merge factors stay
+// per-group rather than going through one global linearize + delinearize.
+//       DISPATCH-SCOPE:     %[[LIN0:.+]] = affine.linearize_index disjoint
+//  DISPATCH-SCOPE-SAME:       [%[[IDX0]], %[[IDX2]]] by (%[[SRC_D0]], 128)
+//       DISPATCH-SCOPE:     %[[LIN1:.+]] = affine.linearize_index disjoint
+//  DISPATCH-SCOPE-SAME:       [%[[IDX1]], %[[IDX3]]] by (%[[SRC_D1]], 128)
+//       DISPATCH-SCOPE:     %[[BOUND0:.+]] = arith.cmpi ult, %[[LIN0]], %[[RES_D0]]
+//       DISPATCH-SCOPE:     %[[BOUND1:.+]] = arith.cmpi ult, %[[LIN1]], %[[RES_D1]]
 //       DISPATCH-SCOPE:     %[[MASK:.+]] = arith.andi %[[BOUND0]], %[[BOUND1]] : i1
-//       DISPATCH-SCOPE:     iree_linalg_ext.yield %[[DELINEARIZE]]#0, %[[DELINEARIZE]]#1, %[[MASK]]
+//       DISPATCH-SCOPE:     iree_linalg_ext.yield %[[LIN0]], %[[LIN1]], %[[MASK]]
 //       DISPATCH-SCOPE:   } : tensor<?x?x128x128xf32> into tensor<?x?xf32> -> tensor<?x?xf32>
 //       DISPATCH-SCOPE:   iree_codegen.store_to_buffer %[[MAP_SCATTER]], %[[RESULT]] : tensor<?x?xf32> into memref<?x?xf32>
 
